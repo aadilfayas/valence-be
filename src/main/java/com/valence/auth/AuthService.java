@@ -36,7 +36,7 @@ public class AuthService {
 
         log.info("Registered new user: {}", user.getEmail());
         String token = jwtUtil.generateToken(user.getEmail());
-        return new AuthResponse(token, user.getEmail(), user.getDisplayName());
+        return new AuthResponse(user.getId(), token, user.getEmail(), user.getDisplayName());
     }
 
     @Transactional(readOnly = true)
@@ -50,6 +50,6 @@ public class AuthService {
 
         log.info("User logged in: {}", user.getEmail());
         String token = jwtUtil.generateToken(user.getEmail());
-        return new AuthResponse(token, user.getEmail(), user.getDisplayName());
+        return new AuthResponse(user.getId(), token, user.getEmail(), user.getDisplayName());
     }
 }
