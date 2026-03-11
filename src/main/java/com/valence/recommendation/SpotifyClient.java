@@ -41,10 +41,42 @@ public class SpotifyClient {
      */
     @Transactional
     public SongCache getTrackFeatures(String trackId) {
+        return getTrackFeatures(trackId, null, null, null);
+    }
+
+    /**
+     * Returns audio features for a track while enriching cache rows with metadata when available.
+     * If a valid cache row exists (within TTL), it is returned without calling Spotify.
+     */
+    @Transactional
+    public SongCache getTrackFeatures(SpotifyTrackDto track, String genre) {
+        if (track == null || track.getId() == null || track.getId().isBlank()) {
+            throw new IllegalArgumentException("Track id is required");
+        }
+        return getTrackFeatures(track.getId(), track.getName(), track.getFirstArtistName(), genre);
+    }
+
+    private SongCache getTrackFeatures(String trackId, String trackName, String artist, String genre) {
         Optional<SongCache> cached = songCacheRepository.findById(trackId);
         if (cached.isPresent() && isWithinCacheTtl(cached.get().getCachedAt())) {
             log.debug("Cache hit for track {}", trackId);
-            return cached.get();
+            SongCache cachedEntry = cached.get();
+            boolean updated = false;
+
+            if (hasText(trackName) && !hasText(cachedEntry.getTrackName())) {
+                cachedEntry.setTrackName(trackName);
+                updated = true;
+            }
+            if (hasText(artist) && !hasText(cachedEntry.getArtist())) {
+                cachedEntry.setArtist(artist);
+                updated = true;
+            }
+            if (hasText(genre) && !hasText(cachedEntry.getGenre())) {
+                cachedEntry.setGenre(genre);
+                updated = true;
+            }
+
+            return updated ? songCacheRepository.save(cachedEntry) : cachedEntry;
         }
 
         log.debug("Cache miss for track {}, fetching audio features from Spotify", trackId);
@@ -52,6 +84,9 @@ public class SpotifyClient {
 
         SongCache entry = cached.orElse(new SongCache());
         entry.setSpotifyTrackId(features.getId());
+        entry.setTrackName(trackName);
+        entry.setArtist(artist);
+        entry.setGenre(genre);
         entry.setValence(features.getValence());
         entry.setEnergy(features.getEnergy());
         entry.setCachedAt(LocalDateTime.now());
@@ -112,5 +147,9 @@ public class SpotifyClient {
 
     private boolean isWithinCacheTtl(LocalDateTime cachedAt) {
         return cachedAt != null && cachedAt.isAfter(LocalDateTime.now().minusDays(CACHE_TTL_DAYS));
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 }
