@@ -1,14 +1,8 @@
 package com.valence.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-
-import java.util.UUID;
 
 public class MoodSessionCreateRequest {
-
-    @NotNull
-    private UUID userId;
 
     @NotBlank
     private String feelingMessage;
@@ -18,14 +12,6 @@ public class MoodSessionCreateRequest {
 
     @NotBlank
     private String goalMessage;
-
-    public UUID getUserId() {
-        return userId;
-    }
-
-    public void setUserId(UUID userId) {
-        this.userId = userId;
-    }
 
     public String getFeelingMessage() {
         return feelingMessage;

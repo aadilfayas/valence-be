@@ -47,8 +47,8 @@ public class MoodService {
         );
     }
 
-    public UUID createMoodSession(MoodSessionCreateRequest request) {
-        User user = userRepository.findById(request.getUserId())
+    public UUID createMoodSession(String email, MoodSessionCreateRequest request) {
+        User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "User not found"));
 
         MoodScoreResponse feelingScore = nrcVadAnalyzer.analyzeText(request.getFeelingMessage());
@@ -67,7 +67,7 @@ public class MoodService {
         session.setGoalArousal(goalScore.getArousal());
 
         MoodSession savedSession = moodSessionRepository.save(session);
-        log.info("Created mood session {} for user {}", savedSession.getId(), request.getUserId());
+        log.info("Created mood session {} for user {}", savedSession.getId(), email);
         return savedSession.getId();
     }
 

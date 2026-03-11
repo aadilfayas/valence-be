@@ -8,6 +8,7 @@ import com.valence.dto.MoodSessionHistoryResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -36,8 +37,11 @@ public class MoodController {
     }
 
     @PostMapping("/session")
-    public MoodSessionCreateResponse createMoodSession(@Valid @RequestBody MoodSessionCreateRequest request) {
-        UUID sessionId = moodService.createMoodSession(request);
+    public MoodSessionCreateResponse createMoodSession(
+            Authentication authentication,
+            @Valid @RequestBody MoodSessionCreateRequest request
+    ) {
+        UUID sessionId = moodService.createMoodSession(authentication.getName(), request);
         return new MoodSessionCreateResponse(sessionId);
     }
 
