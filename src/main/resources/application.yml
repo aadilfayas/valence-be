@@ -3,9 +3,9 @@ spring:
     name: valence
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/valence
-    username: postgres
-    password: root
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/valence}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:root}
     driver-class-name: org.postgresql.Driver
 
   jpa:
@@ -17,15 +17,27 @@ spring:
         format_sql: true
 
 server:
-  port: 8080
+  port: ${PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
 
 jwt:
-  secret: valence-local-dev-secret-key-must-be-256-bits-long-for-hs256
-  expiry-ms: 86400000
+  secret: ${JWT_SECRET:valence-local-dev-secret-key-must-be-256-bits-long-for-hs256}
+  expiry-ms: ${JWT_EXPIRY_MS:86400000}
 
 spotify:
-  client-id: placeholder
-  client-secret: placeholder
+  client-id: ${SPOTIFY_CLIENT_ID:placeholder}
+  client-secret: ${SPOTIFY_CLIENT_SECRET:placeholder}
+
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}
 
 logging:
   level:
