@@ -34,11 +34,11 @@ public class JwtUtil {
                 .compact();
     }
 
-    public String extractSubject(String token) {
+    public String extractEmail(String token) {
         return parseClaims(token).getSubject();
     }
 
-    public boolean isTokenValid(String token) {
+    public boolean validateToken(String token) {
         try {
             parseClaims(token);
             return true;

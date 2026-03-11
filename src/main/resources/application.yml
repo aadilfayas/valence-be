@@ -40,6 +40,12 @@ spotify:
 cors:
   allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
 
+app:
+  seed:
+    email: ${SEED_USER_EMAIL:}
+    password: ${SEED_USER_PASSWORD:}
+    display-name: ${SEED_USER_DISPLAY_NAME:Admin}
+
 logging:
   level:
     com.valence: INFO

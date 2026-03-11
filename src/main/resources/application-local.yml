@@ -21,6 +21,12 @@ spotify:
 cors:
   allowed-origins: http://localhost:5173,http://localhost:3000
 
+app:
+  seed:
+    email: admin@valence.dev
+    password: changeme123
+    display-name: Admin
+
 logging:
   level:
     com.valence: DEBUG
