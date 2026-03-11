@@ -56,3 +56,6 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# Local dev secrets
+src/main/resources/application-local.yml

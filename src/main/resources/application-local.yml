@@ -15,8 +15,8 @@ jwt:
   expiry-ms: 86400000
 
 spotify:
-  client-id: placeholder
-  client-secret: placeholder
+  client-id: c4e9dc90c0ed4f6eae005e0f73bf61b8
+  client-secret: 66904d73d07d4bb096a00a1767497444
 
 cors:
   allowed-origins: http://localhost:5173,http://localhost:3000
