@@ -11,7 +11,7 @@ spring:
         format_sql: true
 
 jwt:
-  secret: valence-local-dev-secret-key-must-be-256-bits-long-for-hs256
+  secret: valence-local-dev-secret-key-abcdefghijklmnopqrstuvwxyz-0123456789-padding
   expiry-ms: 86400000
 
 spotify:
