@@ -45,8 +45,7 @@ public class DataInitializer implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        seedDefaultUser();
-        seedSongCacheFromCsv();
+        log.info("Initial data seeding is disabled. Skipping default user and song_cache CSV seed.");
     }
 
     private void seedDefaultUser() {
