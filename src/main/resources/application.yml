@@ -36,6 +36,7 @@ jwt:
 spotify:
   client-id: ${SPOTIFY_CLIENT_ID}
   client-secret: ${SPOTIFY_CLIENT_SECRET}
+  featured-playlist-id: ${SPOTIFY_FEATURED_PLAYLIST_ID:}
 
 cors:
   allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,https://valence-ui.vercel.app}
