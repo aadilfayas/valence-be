@@ -9,6 +9,7 @@ public class RecommendationTrackResponse {
     private double valence;
     private double energy;
     private double distanceToWaypoint;
+    private String previewUrl;
 
     public RecommendationTrackResponse(int positionInPath,
                                        String spotifyTrackId,
@@ -17,6 +18,17 @@ public class RecommendationTrackResponse {
                                        double valence,
                                        double energy,
                                        double distanceToWaypoint) {
+        this(positionInPath, spotifyTrackId, trackName, artist, valence, energy, distanceToWaypoint, null);
+    }
+
+    public RecommendationTrackResponse(int positionInPath,
+                                       String spotifyTrackId,
+                                       String trackName,
+                                       String artist,
+                                       double valence,
+                                       double energy,
+                                       double distanceToWaypoint,
+                                       String previewUrl) {
         this.positionInPath = positionInPath;
         this.spotifyTrackId = spotifyTrackId;
         this.trackName = trackName;
@@ -24,6 +36,7 @@ public class RecommendationTrackResponse {
         this.valence = valence;
         this.energy = energy;
         this.distanceToWaypoint = distanceToWaypoint;
+        this.previewUrl = previewUrl;
     }
 
     public int getPositionInPath() {
@@ -80,5 +93,13 @@ public class RecommendationTrackResponse {
 
     public void setDistanceToWaypoint(double distanceToWaypoint) {
         this.distanceToWaypoint = distanceToWaypoint;
+    }
+
+    public String getPreviewUrl() {
+        return previewUrl;
+    }
+
+    public void setPreviewUrl(String previewUrl) {
+        this.previewUrl = previewUrl;
     }
 }

@@ -42,11 +42,12 @@ public class SpotifyClient {
      */
     @Transactional
     public SongCache getTrackFeatures(String trackId) {
-        return getTrackFeatures(trackId, null, null, null);
+        return getTrackFeatures(trackId, null, null, null, null);
     }
 
     /**
      * Returns audio features for a track while enriching cache rows with metadata when available.
+     * Includes the Spotify preview URL sourced from the recommendations response.
      * If a valid cache row exists (within TTL), it is returned without calling Spotify.
      */
     @Transactional
@@ -54,10 +55,10 @@ public class SpotifyClient {
         if (track == null || track.getId() == null || track.getId().isBlank()) {
             throw new IllegalArgumentException("Track id is required");
         }
-        return getTrackFeatures(track.getId(), track.getName(), track.getFirstArtistName(), genre);
+        return getTrackFeatures(track.getId(), track.getName(), track.getFirstArtistName(), genre, track.getPreviewUrl());
     }
 
-    private SongCache getTrackFeatures(String trackId, String trackName, String artist, String genre) {
+    private SongCache getTrackFeatures(String trackId, String trackName, String artist, String genre, String previewUrl) {
         Optional<SongCache> cached = songCacheRepository.findById(trackId);
         if (cached.isPresent() && isWithinCacheTtl(cached.get().getCachedAt())) {
             log.debug("Cache hit for track {}", trackId);
@@ -74,6 +75,10 @@ public class SpotifyClient {
             }
             if (hasText(genre) && !hasText(cachedEntry.getGenre())) {
                 cachedEntry.setGenre(genre);
+                updated = true;
+            }
+            if (hasText(previewUrl) && !hasText(cachedEntry.getPreviewUrl())) {
+                cachedEntry.setPreviewUrl(previewUrl);
                 updated = true;
             }
 
@@ -100,6 +105,7 @@ public class SpotifyClient {
             unavailable.setTrackName(trackName);
             unavailable.setArtist(artist);
             unavailable.setGenre(genre);
+            unavailable.setPreviewUrl(previewUrl);
             unavailable.setCachedAt(LocalDateTime.now());
             return unavailable;
         }
@@ -111,13 +117,14 @@ public class SpotifyClient {
         entry.setGenre(genre);
         entry.setValence(features.getValence());
         entry.setEnergy(features.getEnergy());
+        entry.setPreviewUrl(previewUrl);
         entry.setCachedAt(LocalDateTime.now());
         return songCacheRepository.save(entry);
     }
 
     /**
      * Fetches track recommendations for a seed genre from Spotify's /recommendations endpoint.
-     * Returns a list of track DTOs containing id, name, and first artist.
+     * Returns a list of track DTOs containing id, name, first artist, and preview URL.
      */
     public List<SpotifyTrackDto> getRecommendations(String genre, int limit) {
         String token = spotifyAuthService.getValidToken();

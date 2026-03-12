@@ -159,7 +159,8 @@ public class RecommendService {
                         track.getName(),
                         track.getFirstArtistName(),
                         safeDouble(features.getValence()),
-                        safeDouble(features.getEnergy())
+                        safeDouble(features.getEnergy()),
+                        features.getPreviewUrl()
                 );
                 candidatesById.putIfAbsent(candidate.spotifyTrackId(), candidate);
             }
@@ -185,7 +186,8 @@ public class RecommendService {
                         song.getTrackName(),
                         song.getArtist(),
                         safeDouble(song.getValence()),
-                        safeDouble(song.getEnergy())
+                        safeDouble(song.getEnergy()),
+                        song.getPreviewUrl()
                 );
                 candidatesById.putIfAbsent(candidate.spotifyTrackId(), candidate);
             }
@@ -239,7 +241,8 @@ public class RecommendService {
                 candidate.artist(),
                 candidate.valence(),
                 candidate.energy(),
-                scored.distance()
+                scored.distance(),
+                candidate.previewUrl()
         );
     }
 
@@ -257,15 +260,21 @@ public class RecommendService {
 
     private List<RecommendationTrackResponse> mapRecommendations(List<Recommendation> recommendations) {
         return recommendations.stream()
-                .map(recommendation -> new RecommendationTrackResponse(
-                        recommendation.getPositionInPath(),
-                        recommendation.getSpotifyTrackId(),
-                        recommendation.getTrackName(),
-                        recommendation.getArtist(),
-                        safeDouble(recommendation.getValence()),
-                        safeDouble(recommendation.getEnergy()),
-                        0.0
-                ))
+                .map(recommendation -> {
+                    String previewUrl = songCacheRepository.findById(recommendation.getSpotifyTrackId())
+                            .map(SongCache::getPreviewUrl)
+                            .orElse(null);
+                    return new RecommendationTrackResponse(
+                            recommendation.getPositionInPath(),
+                            recommendation.getSpotifyTrackId(),
+                            recommendation.getTrackName(),
+                            recommendation.getArtist(),
+                            safeDouble(recommendation.getValence()),
+                            safeDouble(recommendation.getEnergy()),
+                            0.0,
+                            previewUrl
+                    );
+                })
                 .toList();
     }
 
@@ -278,7 +287,7 @@ public class RecommendService {
         return value == null ? 0.0 : value;
     }
 
-    private record TrackCandidate(String spotifyTrackId, String trackName, String artist, double valence, double energy) {
+    private record TrackCandidate(String spotifyTrackId, String trackName, String artist, double valence, double energy, String previewUrl) {
     }
 
     private record Waypoint(double valence, double arousal) {

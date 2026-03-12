@@ -28,6 +28,9 @@ public class SongCache {
     @Column(length = 100)
     private String genre;
 
+    @Column(name = "preview_url")
+    private String previewUrl;
+
     @Column(name = "cached_at")
     private LocalDateTime cachedAt = LocalDateTime.now();
 }

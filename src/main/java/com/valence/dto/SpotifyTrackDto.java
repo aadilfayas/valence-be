@@ -1,6 +1,7 @@
 package com.valence.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -14,6 +15,9 @@ public class SpotifyTrackDto {
     private String id;
     private String name;
     private List<SpotifyArtistDto> artists;
+
+    @JsonProperty("preview_url")
+    private String previewUrl;
 
     public String getFirstArtistName() {
         if (artists != null && !artists.isEmpty()) {
