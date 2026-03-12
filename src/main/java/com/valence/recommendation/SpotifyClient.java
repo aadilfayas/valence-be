@@ -13,6 +13,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -80,7 +81,28 @@ public class SpotifyClient {
         }
 
         log.debug("Cache miss for track {}, fetching audio features from Spotify", trackId);
-        SpotifyAudioFeaturesResponse features = fetchAudioFeatures(trackId);
+        SpotifyAudioFeaturesResponse features;
+        try {
+            features = fetchAudioFeatures(trackId);
+        } catch (HttpStatusCodeException e) {
+            log.warn("Failed to fetch audio features for track {}: status={} body={}",
+                    trackId,
+                    e.getStatusCode().value(),
+                    trimResponseBody(e.getResponseBodyAsString()));
+
+            if (cached.isPresent()) {
+                log.info("Falling back to stale cached audio features for track {}", trackId);
+                return cached.get();
+            }
+
+            SongCache unavailable = new SongCache();
+            unavailable.setSpotifyTrackId(trackId);
+            unavailable.setTrackName(trackName);
+            unavailable.setArtist(artist);
+            unavailable.setGenre(genre);
+            unavailable.setCachedAt(LocalDateTime.now());
+            return unavailable;
+        }
 
         SongCache entry = cached.orElse(new SongCache());
         entry.setSpotifyTrackId(features.getId());
@@ -121,6 +143,12 @@ public class SpotifyClient {
 
             log.info("Fetched {} recommendations for genre '{}'", body.getTracks().size(), genre);
             return body.getTracks();
+        } catch (HttpStatusCodeException e) {
+            log.error("Failed to fetch recommendations for genre '{}': status={} body={}",
+                    genre,
+                    e.getStatusCode().value(),
+                    trimResponseBody(e.getResponseBodyAsString()));
+            return Collections.emptyList();
         } catch (Exception e) {
             log.error("Failed to fetch recommendations for genre '{}': {}", genre, e.getMessage());
             return Collections.emptyList();
@@ -151,5 +179,14 @@ public class SpotifyClient {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private String trimResponseBody(String body) {
+        if (!hasText(body)) {
+            return "<empty>";
+        }
+
+        String normalized = body.replaceAll("\\s+", " ").trim();
+        return normalized.length() > 300 ? normalized.substring(0, 300) + "..." : normalized;
     }
 }

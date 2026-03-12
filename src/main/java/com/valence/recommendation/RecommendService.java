@@ -9,6 +9,7 @@ import com.valence.model.Recommendation;
 import com.valence.model.SongCache;
 import com.valence.repository.MoodSessionRepository;
 import com.valence.repository.RecommendationRepository;
+import com.valence.repository.SongCacheRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -23,8 +24,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import static org.springframework.http.HttpStatus.NOT_FOUND;
+import static org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE;
 
 @Service
 @RequiredArgsConstructor
@@ -41,6 +44,7 @@ public class RecommendService {
 
     private final RecommendationRepository recommendationRepository;
     private final MoodSessionRepository moodSessionRepository;
+    private final SongCacheRepository songCacheRepository;
     private final SpotifyClient spotifyClient;
 
     public RecommendationListResponse getRecommendations(UUID sessionId) {
@@ -84,7 +88,10 @@ public class RecommendService {
         if (candidates.isEmpty()) {
             log.warn("No candidate tracks available for recommendation session {}", session.getId());
             recommendationRepository.deleteBySessionId(session.getId());
-            return new RecommendationListResponse(session.getId(), List.of());
+            throw new ResponseStatusException(
+                    SERVICE_UNAVAILABLE,
+                    "Unable to generate recommendations: Spotify Recommendations/Audio Features endpoints are unavailable for this app."
+            );
         }
 
         List<RecommendationTrackResponse> selected = new ArrayList<>();
@@ -132,9 +139,11 @@ public class RecommendService {
 
     private List<TrackCandidate> buildTrackCandidatePool(List<String> genrePool) {
         Map<String, TrackCandidate> candidatesById = new HashMap<>();
+        int spotifyTrackCount = 0;
 
         for (String genre : genrePool) {
             List<SpotifyTrackDto> tracks = spotifyClient.getRecommendations(genre, TRACKS_PER_GENRE);
+            spotifyTrackCount += tracks.size();
             for (SpotifyTrackDto track : tracks) {
                 if (track == null || track.getId() == null || track.getId().isBlank()) {
                     continue;
@@ -154,6 +163,36 @@ public class RecommendService {
                 );
                 candidatesById.putIfAbsent(candidate.spotifyTrackId(), candidate);
             }
+        }
+
+        if (candidatesById.isEmpty()) {
+            List<String> normalizedGenres = genrePool.stream()
+                    .map(String::toLowerCase)
+                    .collect(Collectors.toList());
+
+            List<SongCache> fallback = songCacheRepository.findCandidatesByGenres(normalizedGenres);
+            if (fallback.isEmpty()) {
+                fallback = songCacheRepository.findAllWithMoodMetrics();
+            }
+
+            for (SongCache song : fallback) {
+                if (song.getSpotifyTrackId() == null || song.getSpotifyTrackId().isBlank()) {
+                    continue;
+                }
+
+                TrackCandidate candidate = new TrackCandidate(
+                        song.getSpotifyTrackId(),
+                        song.getTrackName(),
+                        song.getArtist(),
+                        safeDouble(song.getValence()),
+                        safeDouble(song.getEnergy())
+                );
+                candidatesById.putIfAbsent(candidate.spotifyTrackId(), candidate);
+            }
+
+            log.warn("Spotify candidate fetch returned no tracks ({} requested). Using local song_cache fallback with {} tracks",
+                    spotifyTrackCount,
+                    candidatesById.size());
         }
 
         List<TrackCandidate> candidates = new ArrayList<>(candidatesById.values());
