@@ -1,6 +1,7 @@
 package com.valence.recommendation;
 
 import com.valence.dto.RecommendationListResponse;
+import com.valence.dto.RecommendationGenresResponse;
 import com.valence.dto.RecommendationNextRequest;
 import com.valence.dto.RecommendationTrackResponse;
 import com.valence.dto.ReccoBeatsTrackDto;
@@ -23,6 +24,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -37,8 +39,10 @@ public class RecommendService {
 
     private static final int WAYPOINT_COUNT = 5;
     private static final int SONGS_PER_WAYPOINT = 2;
+    private static final int TARGET_RECOMMENDATION_COUNT = WAYPOINT_COUNT * SONGS_PER_WAYPOINT;
     private static final int RECCOBEATS_RECOMMENDATION_SIZE = 80;
     private static final int MAX_SEED_TRACK_IDS = 5;
+    private static final int MAX_PREFERRED_GENRES = 8;
     private static final List<String> DEFAULT_GENRE_POOL = List.of(
             "pop", "rock", "indie", "electronic", "chill", "ambient"
     );
@@ -49,11 +53,20 @@ public class RecommendService {
     private final ReccoBeatsClient reccoBeatsClient;
     private final SpotifyClient spotifyClient;
 
-    public RecommendationListResponse getRecommendations(UUID sessionId) {
+    public RecommendationGenresResponse getAvailableGenres() {
+        List<String> genres = songCacheRepository.findDistinctGenres();
+        if (genres.isEmpty()) {
+            genres = DEFAULT_GENRE_POOL;
+        }
+        return new RecommendationGenresResponse(genres);
+    }
+
+    public RecommendationListResponse getRecommendations(UUID sessionId, List<String> preferredGenres) {
         MoodSession session = getSessionOrThrow(sessionId);
+        List<String> genrePool = resolveGenrePool(preferredGenres);
         List<Recommendation> existing = recommendationRepository.findBySessionIdOrderByPositionInPath(sessionId);
 
-        if (!existing.isEmpty()) {
+        if (!existing.isEmpty() && isEmpty(preferredGenres)) {
             return new RecommendationListResponse(sessionId, mapRecommendations(existing));
         }
 
@@ -62,18 +75,21 @@ public class RecommendService {
                 safeDouble(session.getValenceScore()),
                 safeDouble(session.getArousalScore()),
                 safeDouble(session.getGoalValence()),
-                safeDouble(session.getGoalArousal())
+                safeDouble(session.getGoalArousal()),
+                genrePool
         );
     }
 
     public RecommendationListResponse regenerateFromCurrentPosition(RecommendationNextRequest request) {
         MoodSession session = getSessionOrThrow(request.getSessionId());
+        List<String> genrePool = resolveGenrePool(request.getPreferredGenres());
         return generateAndStoreRecommendations(
                 session,
                 safeDouble(request.getCurrentValence()),
                 safeDouble(request.getCurrentArousal()),
                 safeDouble(session.getGoalValence()),
-                safeDouble(session.getGoalArousal())
+                safeDouble(session.getGoalArousal()),
+                genrePool
         );
     }
 
@@ -81,11 +97,12 @@ public class RecommendService {
                                                                        double currentValence,
                                                                        double currentArousal,
                                                                        double goalValence,
-                                                                       double goalArousal) {
-        log.info("Generating recommendation path for session {}", session.getId());
+                                                                       double goalArousal,
+                                                                       List<String> genrePool) {
+        log.info("Generating recommendation path for session {} with genres {}", session.getId(), genrePool);
 
         List<Waypoint> waypoints = generateWaypoints(currentValence, currentArousal, goalValence, goalArousal);
-        List<TrackCandidate> candidates = buildTrackCandidatePool(DEFAULT_GENRE_POOL);
+        List<TrackCandidate> candidates = buildTrackCandidatePool(genrePool);
 
         if (candidates.isEmpty()) {
             log.warn("No candidate tracks available for recommendation session {}", session.getId());
@@ -119,13 +136,27 @@ public class RecommendService {
                 added++;
             }
 
-            for (ScoredCandidate scoredCandidate : scored) {
-                if (added >= SONGS_PER_WAYPOINT) {
+            if (selected.size() >= TARGET_RECOMMENDATION_COUNT) {
+                break;
+            }
+        }
+
+        if (selected.size() < TARGET_RECOMMENDATION_COUNT) {
+            Waypoint goalWaypoint = new Waypoint(goalValence, goalArousal);
+            List<ScoredCandidate> fallbackScored = candidates.stream()
+                    .map(candidate -> scoreCandidate(candidate, goalWaypoint))
+                    .sorted(Comparator.comparingDouble(ScoredCandidate::distance))
+                    .toList();
+
+            for (ScoredCandidate scoredCandidate : fallbackScored) {
+                if (selected.size() >= TARGET_RECOMMENDATION_COUNT) {
                     break;
                 }
-
+                if (usedTrackIds.contains(scoredCandidate.candidate().spotifyTrackId())) {
+                    continue;
+                }
                 selected.add(toRecommendationTrackResponse(selected.size() + 1, scoredCandidate));
-                added++;
+                usedTrackIds.add(scoredCandidate.candidate().spotifyTrackId());
             }
         }
 
@@ -184,35 +215,45 @@ public class RecommendService {
         }
 
         if (candidatesById.isEmpty()) {
-            List<SongCache> fallback = songCacheRepository.findCandidatesByGenres(normalizedGenres);
-            if (fallback.isEmpty()) {
-                fallback = songCacheRepository.findAllWithMoodMetrics();
-            }
-
-            for (SongCache song : fallback) {
-                if (song.getSpotifyTrackId() == null || song.getSpotifyTrackId().isBlank()) {
-                    continue;
-                }
-
-                TrackCandidate candidate = new TrackCandidate(
-                        song.getSpotifyTrackId(),
-                        song.getTrackName(),
-                        song.getArtist(),
-                        safeDouble(song.getValence()),
-                        safeDouble(song.getEnergy()),
-                        song.getPreviewUrl()
-                );
-                candidatesById.putIfAbsent(candidate.spotifyTrackId(), candidate);
-            }
+            addFallbackCandidates(candidatesById, normalizedGenres);
 
             log.warn("ReccoBeats candidate fetch returned no usable tracks ({} fetched). Using local song_cache fallback with {} tracks",
                     reccoTrackCount,
+                    candidatesById.size());
+        } else if (candidatesById.size() < TARGET_RECOMMENDATION_COUNT) {
+            int beforeFallback = candidatesById.size();
+            addFallbackCandidates(candidatesById, normalizedGenres);
+            log.info("Expanded candidate pool with song_cache fallback from {} to {} tracks",
+                    beforeFallback,
                     candidatesById.size());
         }
 
         List<TrackCandidate> candidates = new ArrayList<>(candidatesById.values());
         log.info("Built candidate pool with {} tracks", candidates.size());
         return candidates;
+    }
+
+    private void addFallbackCandidates(Map<String, TrackCandidate> candidatesById, List<String> normalizedGenres) {
+        List<SongCache> fallback = songCacheRepository.findCandidatesByGenres(normalizedGenres);
+        if (fallback.isEmpty()) {
+            fallback = songCacheRepository.findAllWithMoodMetrics();
+        }
+
+        for (SongCache song : fallback) {
+            if (song.getSpotifyTrackId() == null || song.getSpotifyTrackId().isBlank()) {
+                continue;
+            }
+
+            TrackCandidate candidate = new TrackCandidate(
+                    song.getSpotifyTrackId(),
+                    song.getTrackName(),
+                    song.getArtist(),
+                    safeDouble(song.getValence()),
+                    safeDouble(song.getEnergy()),
+                    song.getPreviewUrl()
+            );
+            candidatesById.putIfAbsent(candidate.spotifyTrackId(), candidate);
+        }
     }
 
     private List<String> resolveSeedTrackIds(List<String> normalizedGenres) {
@@ -338,6 +379,27 @@ public class RecommendService {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private boolean isEmpty(List<String> values) {
+        return values == null || values.isEmpty();
+    }
+
+    private List<String> resolveGenrePool(List<String> preferredGenres) {
+        if (preferredGenres == null || preferredGenres.isEmpty()) {
+            return DEFAULT_GENRE_POOL;
+        }
+
+        List<String> normalized = preferredGenres.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(this::hasText)
+                .map(String::toLowerCase)
+                .distinct()
+                .limit(MAX_PREFERRED_GENRES)
+                .toList();
+
+        return normalized.isEmpty() ? DEFAULT_GENRE_POOL : normalized;
     }
 
     private String firstNonBlank(String preferred, String fallback) {

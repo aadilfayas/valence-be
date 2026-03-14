@@ -4,6 +4,7 @@ import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
 
+import java.util.List;
 import java.util.UUID;
 
 public class RecommendationNextRequest {
@@ -20,6 +21,8 @@ public class RecommendationNextRequest {
     @DecimalMin("-1.0")
     @DecimalMax("1.0")
     private Double currentArousal;
+
+    private List<String> preferredGenres;
 
     public UUID getSessionId() {
         return sessionId;
@@ -43,5 +46,13 @@ public class RecommendationNextRequest {
 
     public void setCurrentArousal(Double currentArousal) {
         this.currentArousal = currentArousal;
+    }
+
+    public List<String> getPreferredGenres() {
+        return preferredGenres;
+    }
+
+    public void setPreferredGenres(List<String> preferredGenres) {
+        this.preferredGenres = preferredGenres;
     }
 }

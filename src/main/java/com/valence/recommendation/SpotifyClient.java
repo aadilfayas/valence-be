@@ -71,26 +71,27 @@ public class SpotifyClient {
     }
 
     private SongCache getTrackFeaturesInternal(String trackId, String trackName, String artist, String genre, String previewUrl) {
+        TrackMetadata metadata = resolveTrackMetadata(trackId, trackName, artist, previewUrl);
         Optional<SongCache> cached = songCacheRepository.findById(trackId);
         if (cached.isPresent() && isWithinCacheTtl(cached.get().getCachedAt())) {
             log.debug("Cache hit for track {}", trackId);
             SongCache cachedEntry = cached.get();
             boolean updated = false;
 
-            if (hasText(trackName) && !hasText(cachedEntry.getTrackName())) {
-                cachedEntry.setTrackName(trackName);
+            if (hasText(metadata.trackName()) && !hasText(cachedEntry.getTrackName())) {
+                cachedEntry.setTrackName(metadata.trackName());
                 updated = true;
             }
-            if (hasText(artist) && !hasText(cachedEntry.getArtist())) {
-                cachedEntry.setArtist(artist);
+            if (hasText(metadata.artist()) && !hasText(cachedEntry.getArtist())) {
+                cachedEntry.setArtist(metadata.artist());
                 updated = true;
             }
             if (hasText(genre) && !hasText(cachedEntry.getGenre())) {
                 cachedEntry.setGenre(genre);
                 updated = true;
             }
-            if (hasText(previewUrl) && !hasText(cachedEntry.getPreviewUrl())) {
-                cachedEntry.setPreviewUrl(previewUrl);
+            if (hasText(metadata.previewUrl()) && !hasText(cachedEntry.getPreviewUrl())) {
+                cachedEntry.setPreviewUrl(metadata.previewUrl());
                 updated = true;
             }
 
@@ -114,22 +115,22 @@ public class SpotifyClient {
 
             SongCache unavailable = new SongCache();
             unavailable.setSpotifyTrackId(trackId);
-            unavailable.setTrackName(trackName);
-            unavailable.setArtist(artist);
+            unavailable.setTrackName(metadata.trackName());
+            unavailable.setArtist(metadata.artist());
             unavailable.setGenre(genre);
-            unavailable.setPreviewUrl(previewUrl);
+            unavailable.setPreviewUrl(metadata.previewUrl());
             unavailable.setCachedAt(LocalDateTime.now());
             return unavailable;
         }
 
         SongCache entry = cached.orElse(new SongCache());
         entry.setSpotifyTrackId(features.getId());
-        entry.setTrackName(trackName);
-        entry.setArtist(artist);
+        entry.setTrackName(metadata.trackName());
+        entry.setArtist(metadata.artist());
         entry.setGenre(genre);
         entry.setValence(features.getValence());
         entry.setEnergy(features.getEnergy());
-        entry.setPreviewUrl(previewUrl);
+        entry.setPreviewUrl(metadata.previewUrl());
         entry.setCachedAt(LocalDateTime.now());
         return songCacheRepository.save(entry);
     }
@@ -192,6 +193,61 @@ public class SpotifyClient {
         return body;
     }
 
+    private TrackMetadata resolveTrackMetadata(String trackId,
+                                               String trackName,
+                                               String artist,
+                                               String previewUrl) {
+        String resolvedTrackName = trackName;
+        String resolvedArtist = artist;
+        String resolvedPreviewUrl = previewUrl;
+
+        if (hasText(resolvedTrackName) && hasText(resolvedArtist) && hasText(resolvedPreviewUrl)) {
+            return new TrackMetadata(resolvedTrackName, resolvedArtist, resolvedPreviewUrl);
+        }
+
+        try {
+            SpotifyTrackDto track = fetchTrack(trackId);
+            if (track != null) {
+                if (!hasText(resolvedTrackName)) {
+                    resolvedTrackName = track.getName();
+                }
+                if (!hasText(resolvedArtist)) {
+                    resolvedArtist = track.getFirstArtistName();
+                }
+                if (!hasText(resolvedPreviewUrl)) {
+                    resolvedPreviewUrl = track.getPreviewUrl();
+                }
+            }
+        } catch (HttpStatusCodeException e) {
+            log.debug("Failed to fetch Spotify track metadata for {}: status={} body={}",
+                    trackId,
+                    e.getStatusCode().value(),
+                    trimResponseBody(e.getResponseBodyAsString()));
+        } catch (Exception e) {
+            log.debug("Failed to fetch Spotify track metadata for {}: {}", trackId, e.getMessage());
+        }
+
+        return new TrackMetadata(resolvedTrackName, resolvedArtist, resolvedPreviewUrl);
+    }
+
+    private SpotifyTrackDto fetchTrack(String trackId) {
+        String token = spotifyAuthService.getValidToken();
+        String url = API_BASE + "/tracks/" + trackId;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+        HttpEntity<Void> request = new HttpEntity<>(headers);
+
+        ResponseEntity<SpotifyTrackDto> response = restTemplate.exchange(
+                url,
+                HttpMethod.GET,
+                request,
+                SpotifyTrackDto.class
+        );
+
+        return response.getBody();
+    }
+
     private boolean isWithinCacheTtl(LocalDateTime cachedAt) {
         return cachedAt != null && cachedAt.isAfter(LocalDateTime.now().minusDays(CACHE_TTL_DAYS));
     }
@@ -207,5 +263,8 @@ public class SpotifyClient {
 
         String normalized = body.replaceAll("\\s+", " ").trim();
         return normalized.length() > 300 ? normalized.substring(0, 300) + "..." : normalized;
+    }
+
+    private record TrackMetadata(String trackName, String artist, String previewUrl) {
     }
 }

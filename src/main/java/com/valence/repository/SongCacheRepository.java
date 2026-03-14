@@ -26,4 +26,12 @@ public interface SongCacheRepository extends JpaRepository<SongCache, String> {
 							and s.energy is not null
 						""")
 		List<SongCache> findAllWithMoodMetrics();
+
+		@Query("""
+						select distinct lower(trim(s.genre)) from SongCache s
+						where s.genre is not null
+							and trim(s.genre) <> ''
+						order by lower(trim(s.genre))
+						""")
+		List<String> findDistinctGenres();
 }
