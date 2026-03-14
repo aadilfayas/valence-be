@@ -38,6 +38,9 @@ spotify:
   client-secret: ${SPOTIFY_CLIENT_SECRET}
   featured-playlist-id: ${SPOTIFY_FEATURED_PLAYLIST_ID:}
 
+reccobeats:
+  base-url: ${RECCOBEATS_BASE_URL:https://api.reccobeats.com}
+
 cors:
   allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,https://valence-ui.vercel.app}
 

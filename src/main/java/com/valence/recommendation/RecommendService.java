@@ -3,7 +3,7 @@ package com.valence.recommendation;
 import com.valence.dto.RecommendationListResponse;
 import com.valence.dto.RecommendationNextRequest;
 import com.valence.dto.RecommendationTrackResponse;
-import com.valence.dto.SpotifyTrackDto;
+import com.valence.dto.ReccoBeatsTrackDto;
 import com.valence.model.MoodSession;
 import com.valence.model.Recommendation;
 import com.valence.model.SongCache;
@@ -20,11 +20,11 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 import static org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE;
@@ -37,7 +37,8 @@ public class RecommendService {
 
     private static final int WAYPOINT_COUNT = 5;
     private static final int SONGS_PER_WAYPOINT = 2;
-    private static final int TRACKS_PER_GENRE = 30;
+    private static final int RECCOBEATS_RECOMMENDATION_SIZE = 80;
+    private static final int MAX_SEED_TRACK_IDS = 10;
     private static final List<String> DEFAULT_GENRE_POOL = List.of(
             "pop", "rock", "indie", "electronic", "chill", "ambient"
     );
@@ -45,6 +46,7 @@ public class RecommendService {
     private final RecommendationRepository recommendationRepository;
     private final MoodSessionRepository moodSessionRepository;
     private final SongCacheRepository songCacheRepository;
+    private final ReccoBeatsClient reccoBeatsClient;
     private final SpotifyClient spotifyClient;
 
     public RecommendationListResponse getRecommendations(UUID sessionId) {
@@ -90,7 +92,7 @@ public class RecommendService {
             recommendationRepository.deleteBySessionId(session.getId());
             throw new ResponseStatusException(
                     SERVICE_UNAVAILABLE,
-                    "Unable to generate recommendations: Spotify Recommendations/Audio Features endpoints are unavailable for this app."
+                    "Unable to generate recommendations: ReccoBeats/Spotify feature hydration produced no usable tracks."
             );
         }
 
@@ -139,25 +141,40 @@ public class RecommendService {
 
     private List<TrackCandidate> buildTrackCandidatePool(List<String> genrePool) {
         Map<String, TrackCandidate> candidatesById = new HashMap<>();
-        int spotifyTrackCount = 0;
+        List<String> normalizedGenres = genrePool.stream()
+                .map(String::toLowerCase)
+                .toList();
 
-        for (String genre : genrePool) {
-            List<SpotifyTrackDto> tracks = spotifyClient.getRecommendations(genre, TRACKS_PER_GENRE);
-            spotifyTrackCount += tracks.size();
-            for (SpotifyTrackDto track : tracks) {
-                if (track == null || track.getId() == null || track.getId().isBlank()) {
+        List<String> seedTrackIds = resolveSeedTrackIds(normalizedGenres);
+
+        int reccoTrackCount = 0;
+        if (seedTrackIds.isEmpty()) {
+            log.warn("No seed track IDs found in song_cache. Skipping ReccoBeats recommendation fetch.");
+        } else {
+            List<ReccoBeatsTrackDto> tracks = reccoBeatsClient.getRecommendations(seedTrackIds, RECCOBEATS_RECOMMENDATION_SIZE);
+            reccoTrackCount = tracks.size();
+
+            for (ReccoBeatsTrackDto track : tracks) {
+                String spotifyTrackId = reccoBeatsClient.extractSpotifyTrackId(track);
+                if (!hasText(spotifyTrackId)) {
                     continue;
                 }
 
-                SongCache features = spotifyClient.getTrackFeatures(track, genre);
+                SongCache features = spotifyClient.getTrackFeatures(
+                        spotifyTrackId,
+                        track.getDisplayTitle(),
+                        track.getPrimaryArtistName(),
+                        null,
+                        null
+                );
                 if (features.getValence() == null || features.getEnergy() == null) {
                     continue;
                 }
 
                 TrackCandidate candidate = new TrackCandidate(
-                        track.getId(),
-                        track.getName(),
-                        track.getFirstArtistName(),
+                        spotifyTrackId,
+                        firstNonBlank(features.getTrackName(), track.getDisplayTitle()),
+                        firstNonBlank(features.getArtist(), track.getPrimaryArtistName()),
                         safeDouble(features.getValence()),
                         safeDouble(features.getEnergy()),
                         features.getPreviewUrl()
@@ -167,10 +184,6 @@ public class RecommendService {
         }
 
         if (candidatesById.isEmpty()) {
-            List<String> normalizedGenres = genrePool.stream()
-                    .map(String::toLowerCase)
-                    .collect(Collectors.toList());
-
             List<SongCache> fallback = songCacheRepository.findCandidatesByGenres(normalizedGenres);
             if (fallback.isEmpty()) {
                 fallback = songCacheRepository.findAllWithMoodMetrics();
@@ -192,14 +205,50 @@ public class RecommendService {
                 candidatesById.putIfAbsent(candidate.spotifyTrackId(), candidate);
             }
 
-            log.warn("Spotify candidate fetch returned no tracks ({} requested). Using local song_cache fallback with {} tracks",
-                    spotifyTrackCount,
+            log.warn("ReccoBeats candidate fetch returned no usable tracks ({} fetched). Using local song_cache fallback with {} tracks",
+                    reccoTrackCount,
                     candidatesById.size());
         }
 
         List<TrackCandidate> candidates = new ArrayList<>(candidatesById.values());
         log.info("Built candidate pool with {} tracks", candidates.size());
         return candidates;
+    }
+
+    private List<String> resolveSeedTrackIds(List<String> normalizedGenres) {
+        List<SongCache> genreCandidates = songCacheRepository.findCandidatesByGenres(normalizedGenres);
+        List<String> seedTrackIds = new ArrayList<>();
+        Set<String> uniqueTrackIds = new LinkedHashSet<>();
+
+        for (String genre : normalizedGenres) {
+            for (SongCache song : genreCandidates) {
+                if (!hasText(song.getSpotifyTrackId()) || !hasText(song.getGenre())) {
+                    continue;
+                }
+
+                if (genre.equalsIgnoreCase(song.getGenre()) && uniqueTrackIds.add(song.getSpotifyTrackId())) {
+                    seedTrackIds.add(song.getSpotifyTrackId());
+                    break;
+                }
+            }
+        }
+
+        if (seedTrackIds.size() < Math.min(normalizedGenres.size(), MAX_SEED_TRACK_IDS)) {
+            List<SongCache> fallback = songCacheRepository.findAllWithMoodMetrics();
+            for (SongCache song : fallback) {
+                if (!hasText(song.getSpotifyTrackId())) {
+                    continue;
+                }
+                if (uniqueTrackIds.add(song.getSpotifyTrackId())) {
+                    seedTrackIds.add(song.getSpotifyTrackId());
+                }
+                if (seedTrackIds.size() >= MAX_SEED_TRACK_IDS) {
+                    break;
+                }
+            }
+        }
+
+        return seedTrackIds;
     }
 
     private List<Waypoint> generateWaypoints(double currentValence,
@@ -285,6 +334,14 @@ public class RecommendService {
 
     private double safeDouble(Double value) {
         return value == null ? 0.0 : value;
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private String firstNonBlank(String preferred, String fallback) {
+        return hasText(preferred) ? preferred : fallback;
     }
 
     private record TrackCandidate(String spotifyTrackId, String trackName, String artist, double valence, double energy, String previewUrl) {
