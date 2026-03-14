@@ -38,7 +38,7 @@ public class RecommendService {
     private static final int WAYPOINT_COUNT = 5;
     private static final int SONGS_PER_WAYPOINT = 2;
     private static final int RECCOBEATS_RECOMMENDATION_SIZE = 80;
-    private static final int MAX_SEED_TRACK_IDS = 10;
+    private static final int MAX_SEED_TRACK_IDS = 5;
     private static final List<String> DEFAULT_GENRE_POOL = List.of(
             "pop", "rock", "indie", "electronic", "chill", "ambient"
     );

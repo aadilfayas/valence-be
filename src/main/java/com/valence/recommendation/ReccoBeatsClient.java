@@ -24,6 +24,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class ReccoBeatsClient {
 
+    private static final int MAX_SEEDS = 5;
     private static final Pattern SPOTIFY_TRACK_URL_PATTERN = Pattern.compile("open\\.spotify\\.com/track/([A-Za-z0-9]{22})");
     private static final Pattern SPOTIFY_TRACK_URI_PATTERN = Pattern.compile("spotify:track:([A-Za-z0-9]{22})");
 
@@ -35,7 +36,11 @@ public class ReccoBeatsClient {
     public List<ReccoBeatsTrackDto> getRecommendations(List<String> seeds, int size) {
         List<String> normalizedSeeds = seeds == null
                 ? Collections.emptyList()
-                : seeds.stream().filter(this::hasText).distinct().toList();
+            : seeds.stream()
+            .filter(this::hasText)
+            .distinct()
+            .limit(MAX_SEEDS)
+            .toList();
 
         if (normalizedSeeds.isEmpty()) {
             return Collections.emptyList();
