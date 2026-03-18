@@ -26,6 +26,14 @@ public class User {
     @Column(name = "display_name", length = 100)
     private String displayName;
 
+    /**
+     * Comma-separated preferred genre list, e.g. "pop,indie,chill".
+     * Maximum 8 genres. Stored as VARCHAR so no extra join table is needed.
+     * Parsed/serialised by UserProfileService.
+     */
+    @Column(name = "preferred_genres", length = 500)
+    private String preferredGenres;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt = LocalDateTime.now();
 }
