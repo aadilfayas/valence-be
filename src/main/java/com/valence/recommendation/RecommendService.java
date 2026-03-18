@@ -1,5 +1,6 @@
 package com.valence.recommendation;
 
+import com.valence.auth.UserProfileService;
 import com.valence.dto.RecommendationListResponse;
 import com.valence.dto.RecommendationGenresResponse;
 import com.valence.dto.RecommendationNextRequest;
@@ -63,9 +64,14 @@ public class RecommendService {
 
     public RecommendationListResponse getRecommendations(UUID sessionId, List<String> preferredGenres) {
         MoodSession session = getSessionOrThrow(sessionId);
-        List<String> genrePool = resolveGenrePool(preferredGenres);
+
+        // If the caller did not pass explicit genres, fall back to the session owner's saved taste profile.
+        List<String> effectiveGenres = resolveEffectiveGenres(preferredGenres, session);
+        List<String> genrePool = resolveGenrePool(effectiveGenres);
+
         List<Recommendation> existing = recommendationRepository.findBySessionIdOrderByPositionInPath(sessionId);
 
+        // Return cached result only when no explicit genre override was requested.
         if (!existing.isEmpty() && isEmpty(preferredGenres)) {
             return new RecommendationListResponse(sessionId, mapRecommendations(existing));
         }
@@ -82,7 +88,8 @@ public class RecommendService {
 
     public RecommendationListResponse regenerateFromCurrentPosition(RecommendationNextRequest request) {
         MoodSession session = getSessionOrThrow(request.getSessionId());
-        List<String> genrePool = resolveGenrePool(request.getPreferredGenres());
+        List<String> effectiveGenres = resolveEffectiveGenres(request.getPreferredGenres(), session);
+        List<String> genrePool = resolveGenrePool(effectiveGenres);
         return generateAndStoreRecommendations(
                 session,
                 safeDouble(request.getCurrentValence()),
@@ -91,6 +98,24 @@ public class RecommendService {
                 safeDouble(session.getGoalArousal()),
                 genrePool
         );
+    }
+
+    /**
+     * Resolves the genre list to use for a recommendation pass.
+     * Priority: explicit caller genres > session owner's profile genres > DEFAULT_GENRE_POOL (handled in resolveGenrePool).
+     */
+    private List<String> resolveEffectiveGenres(List<String> explicitGenres, MoodSession session) {
+        if (!isEmpty(explicitGenres)) {
+            return explicitGenres;
+        }
+        if (session.getUser() != null) {
+            List<String> profileGenres = UserProfileService.parseGenres(session.getUser().getPreferredGenres());
+            if (!profileGenres.isEmpty()) {
+                log.debug("Using profile genres for session {}: {}", session.getId(), profileGenres);
+                return profileGenres;
+            }
+        }
+        return List.of();
     }
 
     private RecommendationListResponse generateAndStoreRecommendations(MoodSession session,
